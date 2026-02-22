@@ -11,6 +11,11 @@ import { T, DualName } from '@/components/DualText';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { transliterateToHindi } from '@/lib/sanscript';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/drafts';
+import { createRowUtils, generateRowKey, handleTableKeyDown } from '@/lib/tableUtils';
+import { CommonValidations } from '@/lib/validation';
+import { formatCurrency, getTodayString, UI_COLORS } from '@/lib/styles';
+import { useDraftStatus } from '@/hooks/use-draft-status';
+import { DraftStatusIndicator } from '@/components/DraftStatusIndicator';
 
 interface PaymentRow {
   key: string;
@@ -20,11 +25,15 @@ interface PaymentRow {
 
 const DRAFT_KEY = 'payment_entry';
 
+// Create row management utilities
+const rowUtils = createRowUtils<PaymentRow>();
+
 export default function PaymentEntry() {
   const { hindiEnabled } = useLanguage();
+  const { status: draftStatus, markSaving, markSaved, reset: resetDraftStatus } = useDraftStatus();
   const [selectedParty, setSelectedParty] = useState('');
   const [rows, setRows] = useState<PaymentRow[]>([
-    { key: crypto.randomUUID(), date: new Date().toISOString().slice(0, 10), amount: 0 },
+    { key: generateRowKey(), date: getTodayString(), amount: 0 },
   ]);
   const [saving, setSaving] = useState(false);
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null);
@@ -41,7 +50,7 @@ export default function PaymentEntry() {
     [selectedParty]
   ) ?? [];
 
-  const runningTotal = rows.reduce((s, r) => s + (r.amount || 0), 0);
+  const runningTotal = rowUtils.calculateTotal(rows, 'amount');
   const savedTotal = payments.reduce((s, p) => s + p.amount, 0);
 
   // Load draft
@@ -57,58 +66,54 @@ export default function PaymentEntry() {
   useEffect(() => {
     if (!selectedParty) return;
     if (rows.some(r => r.amount > 0)) {
+      markSaving();
       const timer = setTimeout(() => {
         saveDraft(`${DRAFT_KEY}_${selectedParty}`, rows);
-        toast({ title: 'Draft saved', duration: 2000 });
+        markSaved();
       }, 400);
       return () => clearTimeout(timer);
+    } else {
+      resetDraftStatus();
     }
-  }, [rows, selectedParty]);
+  }, [rows, selectedParty, markSaving, markSaved, resetDraftStatus]);
 
   const addRow = () => {
-    setRows(prev => [...prev, { key: crypto.randomUUID(), date: new Date().toISOString().slice(0, 10), amount: 0 }]);
+    setRows(prev => rowUtils.addRow(prev, { date: getTodayString(), amount: 0 }));
   };
 
   const updateRow = (key: string, field: 'date' | 'amount', value: string | number) => {
-    setRows(prev => prev.map(r => r.key === key ? { ...r, [field]: value } : r));
+    setRows(prev => rowUtils.updateRow(prev, key, field, value));
   };
 
   const removeRow = (key: string) => {
-    setRows(prev => prev.length > 1 ? prev.filter(r => r.key !== key) : prev);
+    setRows(prev => rowUtils.removeRow(prev, key));
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>, rowIndex: number, field: 'date' | 'amount') => {
+    const colIndex = field === 'date' ? 0 : 1;
+    handleTableKeyDown(e, rowIndex, colIndex, tableRef, {
+      cols: 2,
+      onAddRow: addRow,
+    });
+
+    // Handle left/right arrow keys for horizontal navigation
     const inputs = tableRef.current?.querySelectorAll<HTMLInputElement>('input');
     if (!inputs) return;
-    const cols = 2;
-    const currentIdx = rowIndex * cols + (field === 'date' ? 0 : 1);
+    const currentIdx = rowIndex * 2 + colIndex;
 
-    if (e.key === 'Enter') {
+    if (e.key === 'ArrowLeft' && field === 'amount' && currentIdx > 0) {
       e.preventDefault();
-      if (currentIdx >= inputs.length - 1) {
-        addRow();
-        setTimeout(() => {
-          const newInputs = tableRef.current?.querySelectorAll<HTMLInputElement>('input');
-          newInputs?.[newInputs.length - 2]?.focus();
-        }, 50);
-      } else {
-        inputs[currentIdx + 1]?.focus();
-      }
-    } else if (e.key === 'ArrowUp' && rowIndex > 0) {
-      e.preventDefault(); inputs[currentIdx - cols]?.focus();
-    } else if (e.key === 'ArrowDown' && rowIndex < rows.length - 1) {
-      e.preventDefault(); inputs[currentIdx + cols]?.focus();
-    } else if (e.key === 'ArrowLeft' && field === 'amount') {
-      e.preventDefault(); inputs[currentIdx - 1]?.focus();
-    } else if (e.key === 'ArrowRight' && field === 'date') {
-      e.preventDefault(); inputs[currentIdx + 1]?.focus();
+      inputs[currentIdx - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && field === 'date' && currentIdx < inputs.length - 1) {
+      e.preventDefault();
+      inputs[currentIdx + 1]?.focus();
     }
   };
 
   const handleSave = async () => {
-    if (!selectedParty) { toast({ title: 'Select a party', variant: 'destructive' }); return; }
-    const validRows = rows.filter(r => r.amount > 0);
-    if (validRows.length === 0) { toast({ title: 'Enter at least one amount', variant: 'destructive' }); return; }
+    if (!CommonValidations.selectionRequired(selectedParty, 'party')) return;
+    const validRows = rowUtils.filterValidRows(rows, r => r.amount > 0);
+    if (!CommonValidations.hasValidRows(validRows.length, 'payment')) return;
 
     setSaving(true);
     try {
@@ -127,7 +132,7 @@ export default function PaymentEntry() {
 
       clearDraft(`${DRAFT_KEY}_${selectedParty}`);
       toast({ title: 'Payments saved' });
-      setRows([{ key: crypto.randomUUID(), date: new Date().toISOString().slice(0, 10), amount: 0 }]);
+      setRows([{ key: generateRowKey(), date: getTodayString(), amount: 0 }]);
     } catch {
       toast({ title: 'Error saving', variant: 'destructive' });
     }
@@ -160,7 +165,7 @@ export default function PaymentEntry() {
 
         <div>
           <T tKey="common.selectParty" as="label" className="text-xs font-medium text-muted-foreground mb-1 block" />
-          <Select value={selectedParty} onValueChange={v => { setSelectedParty(v); setRows([{ key: crypto.randomUUID(), date: new Date().toISOString().slice(0, 10), amount: 0 }]); }}>
+          <Select value={selectedParty} onValueChange={v => { setSelectedParty(v); setRows([{ key: generateRowKey(), date: getTodayString(), amount: 0 }]); }}>
             <SelectTrigger><SelectValue placeholder="Choose party" /></SelectTrigger>
             <SelectContent>
               {parties.map(p => (
@@ -190,7 +195,7 @@ export default function PaymentEntry() {
                   <Input type="number" value={row.amount || ''} onChange={e => updateRow(row.key, 'amount', Number(e.target.value))} onKeyDown={e => handleKeyDown(e, i, 'amount')} className="h-8 text-sm text-right" />
                 </td>
                 <td className="py-1.5 px-1">
-                  <button onClick={() => removeRow(row.key)} className="p-1 text-destructive hover:bg-destructive/10 rounded">
+                  <button onClick={() => removeRow(row.key)} className={`p-1 rounded ${UI_COLORS.button.destructive}`}>
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </td>
@@ -204,11 +209,12 @@ export default function PaymentEntry() {
             <Plus className="h-4 w-4 mr-1" /> <T tKey="payment.addRow" />
           </Button>
           <div className="text-sm font-semibold text-foreground">
-            <T tKey="payment.total" />: ₹{runningTotal.toLocaleString('en-IN')}
+            <T tKey="payment.total" />: {formatCurrency(runningTotal)}
           </div>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-end items-center gap-3">
+          <DraftStatusIndicator status={draftStatus} />
           <Button onClick={handleSave} disabled={saving}>
             <Save className="h-4 w-4 mr-1" /> <T tKey="payment.saveAll" />
           </Button>
@@ -244,7 +250,7 @@ export default function PaymentEntry() {
                   ) : (
                     <>
                       <td className="py-1">{p.date}</td>
-                      <td className="py-1 text-right">₹{p.amount.toLocaleString('en-IN')}</td>
+                      <td className="py-1 text-right">{formatCurrency(p.amount)}</td>
                       <td className="py-1 flex gap-1 justify-end">
                         <button onClick={() => handleEditPayment(p)} className="p-0.5 text-primary hover:bg-primary/10 rounded"><Pencil className="h-3 w-3" /></button>
                         {deletingPaymentId === p.id ? (
@@ -264,7 +270,7 @@ export default function PaymentEntry() {
             <tfoot>
               <tr className="border-t">
                 <td className="py-1 font-bold"><T tKey="payment.total" /></td>
-                <td className="py-1 text-right font-bold">₹{savedTotal.toLocaleString('en-IN')}</td>
+                <td className="py-1 text-right font-bold">{formatCurrency(savedTotal)}</td>
                 <td></td>
               </tr>
             </tfoot>

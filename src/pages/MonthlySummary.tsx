@@ -11,6 +11,9 @@ import { T, DualName } from '@/components/DualText';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { transliterateToHindi } from '@/lib/sanscript';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/drafts';
+import { formatCurrency, UI_COLORS } from '@/lib/styles';
+import { useDraftStatus } from '@/hooks/use-draft-status';
+import { DraftStatusIndicator } from '@/components/DraftStatusIndicator';
 
 interface SummaryRow {
   itemName: string;
@@ -22,6 +25,7 @@ const DRAFT_KEY = 'monthly_summary';
 
 export default function MonthlySummary() {
   const { hindiEnabled } = useLanguage();
+  const { status: draftStatus, markSaving, markSaved, reset: resetDraftStatus } = useDraftStatus();
   const [selectedParty, setSelectedParty] = useState('');
   const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([]);
   const [saving, setSaving] = useState(false);
@@ -56,13 +60,16 @@ export default function MonthlySummary() {
     const party = parties.find(p => p.name === selectedParty);
     if (!party?.id) return;
     if (summaryRows.some(r => r.price > 0)) {
+      markSaving();
       const timer = setTimeout(() => {
         saveDraft(`${DRAFT_KEY}_${party.id}`, summaryRows);
-        toast({ title: 'Draft saved', duration: 2000 });
+        markSaved();
       }, 400);
       return () => clearTimeout(timer);
+    } else {
+      resetDraftStatus();
     }
-  }, [summaryRows, selectedParty, parties]);
+  }, [summaryRows, selectedParty, parties, markSaving, markSaved, resetDraftStatus]);
 
   const grandTotal = summaryRows.reduce((s, r) => s + r.totalQty * r.price, 0);
 
@@ -169,7 +176,7 @@ export default function MonthlySummary() {
                         />
                       </td>
                       <td className="py-1.5 px-1 text-right font-semibold">
-                        ₹{(row.totalQty * row.price).toLocaleString('en-IN')}
+                        {formatCurrency(row.totalQty * row.price)}
                       </td>
                       <td className="py-1.5 px-1">
                         {deletingIdx === i ? (
@@ -178,7 +185,7 @@ export default function MonthlySummary() {
                             <button onClick={() => setDeletingIdx(null)} className="text-muted-foreground">No</button>
                           </div>
                         ) : (
-                          <button onClick={() => setDeletingIdx(i)} className="p-1 text-destructive hover:bg-destructive/10 rounded">
+                          <button onClick={() => setDeletingIdx(i)} className={`p-1 rounded ${UI_COLORS.button.destructive}`}>
                             <Trash2 className="h-4 w-4" />
                           </button>
                         )}
@@ -190,7 +197,7 @@ export default function MonthlySummary() {
                   <tr className="border-t-2">
                     <td colSpan={3} className="py-2 px-1 text-right font-bold"><T tKey="summary.grandTotal" /></td>
                     <td className="py-2 px-1 text-right font-bold text-primary">
-                      ₹{grandTotal.toLocaleString('en-IN')}
+                      {formatCurrency(grandTotal)}
                     </td>
                     <td></td>
                   </tr>
@@ -198,7 +205,8 @@ export default function MonthlySummary() {
               </table>
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex justify-end items-center gap-3">
+              <DraftStatusIndicator status={draftStatus} />
               <Button onClick={handleFinalize} disabled={saving}>
                 <Save className="h-4 w-4 mr-1" /> <T tKey="summary.finalize" />
               </Button>

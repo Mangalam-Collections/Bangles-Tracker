@@ -1,3 +1,6 @@
+/* Import Noto Sans Devanagari font for Hindi text rendering */
+@import '@fontsource/noto-sans-devanagari/400.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

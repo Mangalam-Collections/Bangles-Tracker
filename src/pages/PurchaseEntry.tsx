@@ -11,6 +11,11 @@ import { transliterateToHindi } from '@/lib/sanscript';
 import { T, DualName } from '@/components/DualText';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/drafts';
+import { createRowUtils, generateRowKey } from '@/lib/tableUtils';
+import { CommonValidations } from '@/lib/validation';
+import { UI_COLORS } from '@/lib/styles';
+import { useDraftStatus } from '@/hooks/use-draft-status';
+import { DraftStatusIndicator } from '@/components/DraftStatusIndicator';
 
 interface RowData {
   key: string;
@@ -21,12 +26,16 @@ interface RowData {
 
 const DRAFT_KEY = 'purchase_entry';
 
+// Create row management utilities
+const rowUtils = createRowUtils<RowData>();
+
 export default function PurchaseEntry() {
   const { hindiEnabled } = useLanguage();
+  const { status: draftStatus, markSaving, markSaved, reset: resetDraftStatus } = useDraftStatus();
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [partyName, setPartyName] = useState('');
   const [rows, setRows] = useState<RowData[]>([
-    { key: crypto.randomUUID(), itemName: '', qty: 0, factor: 1 },
+    { key: generateRowKey(), itemName: '', qty: 0, factor: 1 },
   ]);
   const [saving, setSaving] = useState(false);
   const [editingBlockId, setEditingBlockId] = useState<number | null>(null);
@@ -48,20 +57,24 @@ export default function PurchaseEntry() {
     if (draft) {
       setDate(draft.date);
       setPartyName(draft.partyName);
-      setRows(draft.rows.length ? draft.rows : [{ key: crypto.randomUUID(), itemName: '', qty: 0, factor: 1 }]);
+      setRows(draft.rows.length ? draft.rows : [{ key: generateRowKey(), itemName: '', qty: 0, factor: 1 }]);
     }
   }, []);
 
   // Auto-save draft (debounced)
   useEffect(() => {
     const hasContent = partyName.trim() || rows.some(r => r.itemName.trim());
-    if (!hasContent) return;
+    if (!hasContent) {
+      resetDraftStatus();
+      return;
+    }
+    markSaving();
     const timer = setTimeout(() => {
       saveDraft(DRAFT_KEY, { date, partyName, rows });
-      toast({ title: 'Draft saved', duration: 2000 });
+      markSaved();
     }, 400);
     return () => clearTimeout(timer);
-  }, [date, partyName, rows]);
+  }, [date, partyName, rows, markSaving, markSaved, resetDraftStatus]);
 
   // Check lock state when party changes
   useEffect(() => {
@@ -80,21 +93,21 @@ export default function PurchaseEntry() {
   }, [partyName, parties, blocks]);
 
   const addRow = () => {
-    setRows(prev => [...prev, { key: crypto.randomUUID(), itemName: '', qty: 0, factor: 1 }]);
+    setRows(prev => rowUtils.addRow(prev, { itemName: '', qty: 0, factor: 1 }));
   };
 
   const updateRow = (key: string, field: keyof RowData, value: string | number) => {
-    setRows(prev => prev.map(r => r.key === key ? { ...r, [field]: value } : r));
+    setRows(prev => rowUtils.updateRow(prev, key, field, value));
   };
 
   const removeRow = (key: string) => {
-    setRows(prev => prev.length > 1 ? prev.filter(r => r.key !== key) : prev);
+    setRows(prev => rowUtils.removeRow(prev, key));
   };
 
   const handleSave = async () => {
-    if (!partyName.trim()) { toast({ title: 'Enter party name', variant: 'destructive' }); return; }
-    const validRows = rows.filter(r => r.itemName.trim());
-    if (validRows.length === 0) { toast({ title: 'Add at least one item', variant: 'destructive' }); return; }
+    if (!CommonValidations.partyName(partyName.trim())) return;
+    const validRows = rowUtils.filterValidRows(rows, r => r.itemName.trim() !== '');
+    if (!CommonValidations.hasValidRows(validRows.length)) return;
 
     setSaving(true);
     try {
@@ -141,7 +154,7 @@ export default function PurchaseEntry() {
         toast({ title: 'Saved successfully' });
       }
 
-      setRows([{ key: crypto.randomUUID(), itemName: '', qty: 0, factor: 1 }]);
+      setRows([{ key: generateRowKey(), itemName: '', qty: 0, factor: 1 }]);
       clearDraft(DRAFT_KEY);
     } catch {
       toast({ title: 'Error saving', variant: 'destructive' });
@@ -155,7 +168,7 @@ export default function PurchaseEntry() {
     const blockRows = allRows.filter(r => r.blockId === blockId);
     setDate(block.date);
     setRows(blockRows.map(r => ({
-      key: crypto.randomUUID(),
+      key: generateRowKey(),
       itemName: r.itemName,
       qty: r.qty,
       factor: r.factor,
@@ -173,7 +186,7 @@ export default function PurchaseEntry() {
   return (
     <div className="p-4 space-y-6">
       {/* Entry Form */}
-      <Card className="p-4 space-y-4">
+      <Card className="p-4 space-y-4 overflow-visible">
         <T tKey="purchase.title" as="h2" className="text-base font-semibold text-foreground" />
 
         {isLocked && (
@@ -201,7 +214,8 @@ export default function PurchaseEntry() {
 
         {!isLocked && (
           <>
-            <div className="overflow-x-auto">
+            {/* Desktop Table View - hidden on mobile */}
+            <div className="hidden sm:block overflow-x-auto pb-16">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-muted-foreground">
@@ -235,7 +249,7 @@ export default function PurchaseEntry() {
                         {row.factor ? (row.qty / row.factor).toFixed(2) : '0.00'}
                       </td>
                       <td className="py-1.5 px-1">
-                        <button onClick={() => removeRow(row.key)} className="p-1 text-destructive hover:bg-destructive/10 rounded">
+                        <button onClick={() => removeRow(row.key)} className={`p-1 rounded ${UI_COLORS.button.destructive}`}>
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </td>
@@ -245,19 +259,84 @@ export default function PurchaseEntry() {
               </table>
             </div>
 
-            <div className="flex justify-between">
+            {/* Mobile Card View - visible only on mobile */}
+            <div className="sm:hidden space-y-3 pb-24">
+              {rows.map(row => (
+                <div key={row.key} className="border rounded-lg p-3 space-y-2.5 bg-card relative">
+                  {/* Row 1: Item Name (full width) */}
+                  <div className="relative z-10">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      <T tKey="purchase.item" />
+                    </label>
+                    <ComboboxInput
+                      value={row.itemName}
+                      onChange={v => updateRow(row.key, 'itemName', v)}
+                      options={itemNames}
+                      placeholder="Item"
+                      showTransliteration={hindiEnabled}
+                      compact
+                    />
+                  </div>
+                  
+                  {/* Row 2: Qty, Factor, Total Polate in grid + Delete button */}
+                  <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                        <T tKey="purchase.qty" />
+                      </label>
+                      <Input 
+                        type="number" 
+                        value={row.qty || ''} 
+                        onChange={e => updateRow(row.key, 'qty', Number(e.target.value))} 
+                        className="h-8 text-sm text-right" 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                        <T tKey="purchase.factor" />
+                      </label>
+                      <Input 
+                        type="number" 
+                        value={row.factor || ''} 
+                        onChange={e => updateRow(row.key, 'factor', Number(e.target.value))} 
+                        className="h-8 text-sm text-right" 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                        <T tKey="purchase.totalPolate" />
+                      </label>
+                      <div className="h-8 flex items-center justify-end text-sm font-medium text-foreground pr-2">
+                        {row.factor ? (row.qty / row.factor).toFixed(2) : '0.00'}
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => removeRow(row.key)} 
+                      className={`p-1.5 rounded ${UI_COLORS.button.destructive} h-8`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between items-center mt-4">
               <Button variant="outline" size="sm" onClick={addRow}>
                 <Plus className="h-4 w-4 mr-1" /> <T tKey="purchase.addRow" />
               </Button>
-              <Button size="sm" onClick={handleSave} disabled={saving}>
-                <Save className="h-4 w-4 mr-1" /> {editingBlockId ? 'Update' : <T tKey="purchase.saveAll" />}
-              </Button>
+              <div className="flex items-center gap-3">
+                <DraftStatusIndicator status={draftStatus} />
+                <Button size="sm" onClick={handleSave} disabled={saving}>
+                  <Save className="h-4 w-4 mr-1" /> {editingBlockId ? 'Update' : <T tKey="purchase.saveAll" />}
+                </Button>
+              </div>
             </div>
 
             {editingBlockId && (
               <Button variant="ghost" size="sm" onClick={() => {
                 setEditingBlockId(null);
-                setRows([{ key: crypto.randomUUID(), itemName: '', qty: 0, factor: 1 }]);
+                setRows([{ key: generateRowKey(), itemName: '', qty: 0, factor: 1 }]);
               }}>
                 <X className="h-4 w-4 mr-1" /> Cancel Edit
               </Button>

@@ -22,7 +22,7 @@ export default function AppLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-card px-4 py-3">
-        <T tKey="app.title" as="h1" className="text-lg font-bold text-foreground tracking-tight" />
+        <T tKey="app.title" className="text-lg font-bold text-foreground tracking-tight" />
         <div className="flex items-center gap-2">
           <button
             onClick={toggleHindi}

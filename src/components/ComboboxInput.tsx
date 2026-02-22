@@ -60,7 +60,7 @@ export default function ComboboxInput({ value, onChange, options, placeholder, c
         </p>
       )}
       {open && (filtered.length > 0 || showAddNew) && (
-        <div className="absolute z-50 mt-1 w-full rounded-lg border bg-popover shadow-lg max-h-48 overflow-auto">
+        <div className="absolute z-[100] mt-1 w-full rounded-lg border bg-popover shadow-lg max-h-48 overflow-auto">
           {filtered.map(opt => (
             <button
               key={opt}

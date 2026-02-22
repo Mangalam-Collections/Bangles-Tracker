@@ -16,7 +16,7 @@ export function T({ tKey, className, as: Tag = 'span' }: { tKey: string; classNa
   return (
     <Tag className={className}>
       {val.en}
-      {val.hi && <span className="ml-1 text-[0.75em] text-muted-foreground/60 font-normal" style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}>{val.hi}</span>}
+      {val.hi && <span className="ml-1.5 text-[0.85em] text-muted-foreground font-normal" style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}>{val.hi}</span>}
     </Tag>
   );
 }
@@ -28,7 +28,7 @@ export function DualName({ en, hi, className }: { en: string; hi?: string; class
     <span className={className}>
       <span className="font-medium">{en}</span>
       {hindiEnabled && hi && (
-        <span className="ml-1 text-[0.75em] text-muted-foreground/60" style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}>{hi}</span>
+        <span className="ml-1.5 text-[0.85em] text-muted-foreground" style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}>{hi}</span>
       )}
     </span>
   );
