@@ -5,7 +5,7 @@ const dict: Record<string, { en: string; hi: string }> = {
 
   // Nav
   'nav.purchase': { en: 'Purchase', hi: 'खरीद' },
-  'nav.summary': { en: 'Summary', hi: 'सारांश' },
+  'nav.summary': { en: 'Rate', hi: 'दर' },
   'nav.payments': { en: 'Payments', hi: 'भुगतान' },
   'nav.settlement': { en: 'Settlement', hi: 'निपटान' },
 
@@ -28,7 +28,7 @@ const dict: Record<string, { en: string; hi: string }> = {
   'purchase.locked': { en: 'Finalized — editing disabled', hi: 'अंतिम — संपादन अक्षम' },
 
   // Page 2
-  'summary.title': { en: 'Monthly Party Summary', hi: 'मासिक पार्टी सारांश' },
+  'summary.title': { en: 'Monthly Party Rate', hi: 'मासिक पार्टी दर' },
   'summary.selectParty': { en: 'Choose party', hi: 'पार्टी चुनें' },
   'summary.itemName': { en: 'Item Name', hi: 'आइटम का नाम' },
   'summary.totalQty': { en: 'Total Qty', hi: 'कुल मात्रा' },
